@@ -1,0 +1,23 @@
+# Cuidado ao editar: excluir `modelo/` daqui por engano faz a imagem subir sem o
+# artefato, e o sintoma e /health e /predict devolvendo 503.
+
+.venv/
+__pycache__/
+*.py[cod]
+
+.git/
+.gitattributes
+.gitignore
+.github/
+
+.pytest_cache/
+.ruff_cache/
+
+# Nada disso e usado em tempo de execucao da API.
+tests/
+dags/
+scripts/
+dados/
+requirements-dev.txt
+pyproject.toml
+README.md
