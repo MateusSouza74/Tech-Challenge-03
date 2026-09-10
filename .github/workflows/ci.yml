@@ -108,4 +108,9 @@ jobs:
           pip install "scikit-learn==1.9.0" "joblib==1.6.0" "pytest==9.1.1"
 
       - name: pytest da DAG
-        run: pytest tests/test_dag.py -v
+        run: |
+          # Guarda contra passar em falso: o test_dag comeca com importorskip, entao
+          # Airflow que nao importe faria o pytest pular tudo e sair 0, e o job ficaria
+          # verde sem ter verificado a DAG. Esta linha transforma esse caso em falha.
+          python -c "import airflow.sdk"
+          pytest tests/test_dag.py -v
