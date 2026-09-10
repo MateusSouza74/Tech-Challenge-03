@@ -1,5 +1,7 @@
 # Tech Challenge 03: classificação de laudos médicos
 
+[![ci](https://github.com/MateusSouza74/Tech-Challenge-03/actions/workflows/ci.yml/badge.svg)](https://github.com/MateusSouza74/Tech-Challenge-03/actions/workflows/ci.yml)
+
 Classificador de texto clínico servido por API, empacotado em container, com pipeline de
 treino orquestrado, CI automatizado e stack de observabilidade. O caso de uso é triagem:
 o laudo chega, e a resposta com a categoria da condição volta na mesma sessão do usuário.
@@ -206,11 +208,68 @@ docker run --rm -p 8000:8000 classificador-laudos
 Variáveis de ambiente: `TC3_DATA_DIR` e `TC3_MODEL_DIR` movem os diretórios de dados e do
 artefato, que é o que permite a DAG do Airflow rodar em container com bind mount.
 
+## CI
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda a cada push, em qualquer
+branch, em três jobs paralelos:
+
+| Job | O que faz | Por que existe |
+|---|---|---|
+| `qualidade` | `ruff check` e `pytest` | retorno em menos de um minuto, sem nada subindo |
+| `imagem` | constrói a imagem, sobe o container e classifica um laudo | build que passa não prova que o container serve: um `.dockerignore` que exclua `modelo/` por engano constrói limpo e responde 503. Como quem escreve o código não tem Docker na máquina, este é o único lugar onde a imagem é executada |
+| `dag` | instala o Airflow com o constraints oficial e verifica a estrutura da DAG | pega import quebrado, argumento inválido do decorador e task desconectada do grafo, sem Airflow de pé e sem banco de metadados |
+
+O Airflow fica fora do `requirements-dev.txt` de propósito: são centenas de MB que
+deixariam o job de lint e teste lento sem nada em troca. Por isso
+[`tests/test_dag.py`](tests/test_dag.py) começa com um `importorskip` e é pulado fora do
+job dedicado.
+
+Sem o evento `pull_request` no workflow: as branches vivem neste mesmo repositório e o
+`push` já aparece como check no PR, então habilitar os dois faria cada commit rodar o CI
+duas vezes.
+
+## Pipeline de treino (Airflow)
+
+[`dags/treino_laudos.py`](dags/treino_laudos.py), `dag_id` `treino_classificador_laudos`,
+agendada `@weekly`, sem catchup:
+
+1. **`ingerir`** baixa os dois splits e valida colunas, rótulos dentro das 5 classes
+   conhecidas e o piso de 2.000 amostras. Devolve os caminhos por XCom, não os dados: o
+   XCom é para ponteiro, e passar 14 MB de texto por ele seria bem pior que ler o CSV
+   duas vezes.
+2. **`treinar_modelo`** chama `treino.treinar`, o mesmo módulo que o `python -m
+   treino.treinar` e o CI usam. A lógica de treino não é reimplementada na DAG, senão ela
+   publicaria um modelo diferente do que a linha de comando produz.
+3. **`validar`** barra acurácia abaixo de 0,55 com `AirflowFailException`, que é falha
+   definitiva e não retentativa: treinar de novo com o mesmo corpus dá o mesmo modelo,
+   então repetir a task só atrasaria o alerta.
+
+O treino real leva 9 segundos, então a DAG treina de verdade em vez de simular.
+
+Para rodar fora de container, num ambiente POSIX:
+
+```bash
+export AIRFLOW_HOME=~/airflow
+export AIRFLOW__CORE__DAGS_FOLDER=$(pwd)/dags
+export PYTHONPATH=$(pwd)                 # a DAG importa treino.* da raiz do repo
+airflow standalone
+```
+
+O `PYTHONPATH` é o ponto de atenção em container: a DAG vive em `dags/` e os módulos de
+treino são irmãos dela, na raiz, que não entra no `sys.path` do Airflow sozinho. A DAG
+insere a raiz no `sys.path` por conta própria, o que cobre o caso do repositório montado
+inteiro; montar só a pasta `dags/` quebra o import.
+
+Ressalva honesta: o Airflow não roda em Windows (o `ObjectStoragePath` dele usa
+`os.register_at_fork`, que só existe em POSIX), então o comando acima não foi executado
+nesta máquina. A estrutura da DAG é verificada pelo job `dag` do CI, em Ubuntu, e a
+execução ponta a ponta roda no container.
+
 ## Etapas do desafio
 
 | Etapa | Entrega | Status |
 |---|---|---|
 | 1 | Decisão arquitetural, API FastAPI, container e baseline de latência | concluída |
-| 2 | GitHub Actions com lint e testes, DAG de treino no Airflow | em andamento |
+| 2 | GitHub Actions com lint e testes, DAG de treino no Airflow | concluída |
 | 3 | Docker Compose com Prometheus e Grafana, dashboard de métricas | a fazer |
 | 4 | Otimização de latência do modelo e comparação com o baseline | a fazer |

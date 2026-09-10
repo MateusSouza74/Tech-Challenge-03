@@ -6,5 +6,6 @@
 pytest==9.1.1
 ruff==0.16.6
 
-# O TestClient do FastAPI roda sobre o httpx.
-httpx==0.28.1
+# O TestClient do FastAPI roda sobre o httpx2. Com o httpx 0.28 ele ainda funciona, mas
+# o Starlette 1.6 avisa em cada teste que a combinacao esta depreciada.
+httpx2==2.12.0
