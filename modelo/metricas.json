@@ -1,0 +1,56 @@
+{
+  "acuracia": 0.5904,
+  "f1_macro": 0.5932,
+  "baseline_classe_majoritaria": 0.3328,
+  "amostras_treino": 11550,
+  "amostras_teste": 2888,
+  "termos_no_vocabulario": 50000,
+  "segundos_treino": 8.9,
+  "relatorio_por_classe": {
+    "neoplasms": {
+      "precision": 0.6844380403458213,
+      "recall": 0.7503949447077409,
+      "f1-score": 0.7159005275056518,
+      "support": 633.0
+    },
+    "digestive system diseases": {
+      "precision": 0.4682352941176471,
+      "recall": 0.6655518394648829,
+      "f1-score": 0.5497237569060773,
+      "support": 299.0
+    },
+    "nervous system diseases": {
+      "precision": 0.530938123752495,
+      "recall": 0.6909090909090909,
+      "f1-score": 0.600451467268623,
+      "support": 385.0
+    },
+    "cardiovascular diseases": {
+      "precision": 0.6410998552821997,
+      "recall": 0.7262295081967213,
+      "f1-score": 0.6810146041506533,
+      "support": 610.0
+    },
+    "general pathological conditions": {
+      "precision": 0.5580589254766031,
+      "recall": 0.3350676378772112,
+      "f1-score": 0.4187256176853056,
+      "support": 961.0
+    },
+    "accuracy": 0.5903739612188366,
+    "macro avg": {
+      "precision": 0.5765540477949532,
+      "recall": 0.6336306042311295,
+      "f1-score": 0.5931631947032623,
+      "support": 2888.0
+    },
+    "weighted avg": {
+      "precision": 0.590383777434193,
+      "recall": 0.5903739612188366,
+      "f1-score": 0.5770500274417907,
+      "support": 2888.0
+    }
+  },
+  "versao_sklearn": "1.9.0",
+  "treinado_em": "2026-09-10T13:38:08+00:00"
+}
