@@ -1,0 +1,111 @@
+name: ci
+
+# Sem filtro de branch: o enunciado pede execucao a cada push, e rodar tambem nas
+# branches de trabalho e o que faz o CI pegar o problema antes de abrir o PR. Sem o
+# evento pull_request de proposito, porque as branches vivem neste mesmo repo e o
+# push ja aparece como check no PR: com os dois, cada commit rodaria o CI duas vezes.
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+
+  qualidade:
+    name: ruff + pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Mesma minor da imagem (python:3.12-slim).
+          python-version: "3.12"
+          cache: pip
+          # Os dois arquivos: o requirements-dev inclui o de runtime com -r, entao
+          # mudanca no pin do scikit-learn tem que invalidar o cache tambem.
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - run: pip install -r requirements-dev.txt
+
+      - name: ruff
+        run: ruff check .
+
+      - name: pytest
+        run: pytest
+
+  imagem:
+    name: build e execucao da imagem
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # load: true deixa a imagem no daemon local para o passo seguinte roda-la.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: classificador-laudos:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Build que passa nao prova que o container serve: um .dockerignore que exclua
+      # `modelo/` por engano constroi limpo e responde 503. Este passo e a unica prova
+      # continua de que a imagem sobe e classifica, porque quem escreve o codigo nao
+      # tem Docker na maquina.
+      - name: sobe o container e classifica um laudo
+        run: |
+          docker run -d --name api -p 8000:8000 classificador-laudos:ci
+          for _ in $(seq 30); do
+            curl -sf localhost:8000/health > /dev/null && break
+            sleep 2
+          done
+          curl -sf localhost:8000/health
+          curl -sf -X POST localhost:8000/predict \
+            -H 'content-type: application/json' \
+            -d '{"texto":"Acute myocardial infarction with occlusion of the left anterior descending artery."}' \
+            | tee /dev/stderr | grep -q '"classe"'
+
+      - name: log do container
+        if: always()
+        run: docker logs api
+
+  dag:
+    name: estrutura da DAG
+    runs-on: ubuntu-latest
+    env:
+      AIRFLOW_VERSION: "3.3.1"
+      PYTHON_VERSION: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # Job separado porque o Airflow nao entra no requirements-dev: sao centenas de MB
+      # que deixariam o job de lint e teste lento sem nada em troca. E ele nem instala
+      # na maquina de quem escreve o codigo, que e Windows, onde `ObjectStoragePath`
+      # quebra em `os.register_at_fork`. Aqui e o unico lugar onde a DAG e verificada.
+      - name: instala o Airflow com o constraints oficial
+        run: |
+          pip install "apache-airflow==${AIRFLOW_VERSION}" \
+            --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt"
+          # Sem -r requirements.txt: o Airflow tem os proprios pins de fastapi e
+          # uvicorn para a API dele, e a DAG so precisa do que o treino importa.
+          pip install "scikit-learn==1.9.0" "joblib==1.6.0" "pytest==9.1.1"
+
+      - name: pytest da DAG
+        run: pytest tests/test_dag.py -v
