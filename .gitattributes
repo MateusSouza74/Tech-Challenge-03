@@ -1,0 +1,6 @@
+# O container e o CI rodam em Linux, mesmo com o repo clonado no Windows.
+* text=auto eol=lf
+
+# Artefato do modelo e prints das etapas seguintes.
+*.joblib binary
+*.png binary

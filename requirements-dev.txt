@@ -1,0 +1,10 @@
+# Inclui o runtime de proposito: o modelo e serializado com joblib, e carregar um
+# artefato treinado com scikit-learn diferente do que le levanta aviso de versao
+# incompativel. Um pin so, nos dois ambientes.
+-r requirements.txt
+
+pytest==9.1.1
+ruff==0.16.6
+
+# O TestClient do FastAPI roda sobre o httpx.
+httpx==0.28.1

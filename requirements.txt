@@ -1,0 +1,6 @@
+# Runtime da API. E o que entra na imagem Docker, por isso a lista e curta:
+# nada de pandas aqui, o carregamento de CSV usa o modulo `csv` da stdlib.
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+scikit-learn==1.9.0
+joblib==1.6.0

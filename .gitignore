@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Ferramentas de qualidade
+.pytest_cache/
+.ruff_cache/
+
+# Airflow, quando rodado fora de container
+airflow.cfg
+airflow.db
+standalone_admin_password.txt
+logs/
+
+# Editores / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
