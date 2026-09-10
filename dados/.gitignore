@@ -1,0 +1,6 @@
+# Os CSVs completos do corpus (14 MB) sao baixados por `python -m treino.dados`.
+# Versionada fica so a amostra de 200 linhas, que e o que permite os testes rodarem
+# no CI sem rede.
+*
+!.gitignore
+!amostra_laudos.csv
