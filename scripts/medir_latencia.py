@@ -16,7 +16,7 @@ import argparse
 import statistics
 import time
 
-import httpx
+import httpx2
 
 from app import modelo as servico
 from treino import dados
@@ -55,7 +55,7 @@ def medir_em_processo(textos: list[str], aquecimento: int) -> list[float]:
 def medir_http(url: str, textos: list[str], aquecimento: int) -> list[float]:
     # Client reaproveitado, e nao uma conexao por requisicao: cliente real mantem
     # keep-alive, e abrir socket a cada chamada mediria o TCP, nao a API.
-    with httpx.Client(base_url=url, timeout=30) as cliente:
+    with httpx2.Client(base_url=url, timeout=30) as cliente:
         for texto in textos[:aquecimento]:
             cliente.post("/predict", json={"texto": texto})
 
