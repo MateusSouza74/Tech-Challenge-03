@@ -5,6 +5,11 @@ A escolha e deliberada e nao um atalho. O texto e um abstract clinico em ingles,
 extrai desse corpus sem transformer. Em troca, treina em segundos (o que faz a DAG
 do Airflow treinar de verdade, nao simular), gera um artefato de poucos MB e infere
 em fracao de milissegundo na CPU.
+
+Apos o treino, o pipeline e exportado automaticamente para ONNX (se skl2onnx
+estiver instalado). Isso gera `modelo.onnx` ao lado do `modelo.joblib` existente,
+permitindo que a API sirva inferencias pelo ONNX Runtime (TC3_BACKEND=onnx) sem
+nenhumamodificacao no codigo de treino.
 """
 
 from __future__ import annotations
@@ -54,7 +59,7 @@ def construir_pipeline() -> Pipeline:
                     min_df=3,
                     max_features=50_000,
                     stop_words="english",
-                    strip_accents="unicode",
+                    strip_accents=None,
                     # Abstract e texto longo: sem isso, termo repetido 20 vezes pesa
                     # 20 vezes mais que o que aparece uma.
                     sublinear_tf=True,
@@ -114,6 +119,19 @@ def treinar(caminho_treino: Path, caminho_teste: Path) -> dict:
     joblib.dump(modelo, destino / ARQUIVO_MODELO, compress=3)
     (destino / ARQUIVO_METRICAS).write_text(json.dumps(metricas, indent=2), encoding="utf-8")
 
+    # Exporta o modelo para ONNX logo apos gravar o joblib. A falha aqui nao
+    # derruba o treino: o artefato sklearn ja esta gravado e a API sklearn
+    # continua funcionando. Mas se o onnxruntime/skl2onnx estao instalados
+    # (requirements.txt os lista), a exportacao deve ser bem-sucedida.
+    try:
+        from treino.exportar_onnx import exportar as _exportar_onnx  # noqa: PLC0415
+        _exportar_onnx(destino / ARQUIVO_MODELO, destino / "modelo.onnx")
+        metricas["onnx_exportado"] = True
+    except Exception as exc:  # noqa: BLE001
+        import logging  # noqa: PLC0415
+        logging.getLogger(__name__).warning("exportacao ONNX falhou (nao critico): %s", exc)
+        metricas["onnx_exportado"] = False
+
     return metricas
 
 
@@ -125,4 +143,7 @@ if __name__ == "__main__":
     print(f"baseline majorit. {metricas['baseline_classe_majoritaria']:.4f}")
     print(f"vocabulario       {metricas['termos_no_vocabulario']} termos")
     print(f"treino            {metricas['segundos_treino']:.2f}s")
-    print(f"artefato          {artefato} ({artefato.stat().st_size / 1024 / 1024:.1f} MB)")
+    print(f"artefato sklearn  {artefato} ({artefato.stat().st_size / 1024 / 1024:.1f} MB)")
+    if metricas.get("onnx_exportado"):
+        onnx_path = diretorio_modelo() / "modelo.onnx"
+        print(f"artefato onnx     {onnx_path} ({onnx_path.stat().st_size / 1024:.0f} KB)")

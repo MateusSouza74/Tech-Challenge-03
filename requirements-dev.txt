@@ -1,11 +1,9 @@
-# Inclui o runtime de proposito: o modelo e serializado com joblib, e carregar um
-# artefato treinado com scikit-learn diferente do que le levanta aviso de versao
-# incompativel. Um pin so, nos dois ambientes.
+# Herda os pacotes de runtime da API para manter a paridade das versões de dependências
 -r requirements.txt
 
-pytest==9.1.1
+# Framework de testes unitários automatizados e linter sintático de código
+pytest==9.0.3
 ruff==0.16.6
 
-# O TestClient do FastAPI roda sobre o httpx2. Com o httpx 0.28 ele ainda funciona, mas
-# o Starlette 1.6 avisa em cada teste que a combinacao esta depreciada.
-httpx2==2.12.0
+# Cliente HTTP para execução da suíte de testes de integração via FastAPI TestClient
+httpx==0.28.1

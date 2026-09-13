@@ -1,22 +1,30 @@
-"""Baseline de latencia da API.
+"""Baseline de latencia da API e comparacao sklearn vs ONNX.
 
-Mede duas coisas separadas de proposito:
+Mede tres coisas separadas de proposito:
 
-1. inferencia pura, chamando o modelo em processo, sem rede nenhuma;
-2. a requisicao HTTP completa contra a API de pe.
+1. inferencia pura sklearn, chamando o modelo joblib em processo, sem rede;
+2. inferencia pura ONNX Runtime, chamando o session.run em processo, sem rede;
+3. a requisicao HTTP completa contra a API de pe.
 
-A separacao e o que torna a comparacao da etapa 4 legivel. Otimizar o modelo mexe no
-numero (1); se so o total HTTP fosse medido, um ganho de 1 ms no modelo ficaria
-escondido dentro do overhead de rede e pareceria que a otimizacao nao serviu de nada.
+A separacao e o que torna a comparacao da etapa 4 legivel. Otimizar o modelo mexe
+nos numeros (1) e (2); se so o total HTTP fosse medido, um ganho de 0,5 ms no
+modelo ficaria escondido dentro do overhead de rede e pareceria que a otimizacao
+nao serviu de nada.
 """
 
 from __future__ import annotations
 
 import argparse
+import pathlib
 import statistics
+import sys
 import time
 
-import httpx2
+BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+import httpx
 
 from app import modelo as servico
 from treino import dados
@@ -36,11 +44,9 @@ def resumir(nome: str, amostras: list[float]) -> str:
     )
 
 
-def medir_em_processo(textos: list[str], aquecimento: int) -> list[float]:
+def medir_sklearn(textos: list[str], aquecimento: int) -> list[float]:
+    """Mede a latencia de inferencia do modelo sklearn (joblib) em processo."""
     modelo = servico.carregar()
-    # A primeira inferencia paga inicializacao preguicosa do scipy e do numpy, e sai
-    # uma ordem de grandeza acima das seguintes. Medir sem descartar isso reporta um
-    # p99 que nao acontece em regime.
     for texto in textos[:aquecimento]:
         servico.classificar(modelo, texto)
 
@@ -52,10 +58,33 @@ def medir_em_processo(textos: list[str], aquecimento: int) -> list[float]:
     return amostras
 
 
+def medir_onnx(textos: list[str], aquecimento: int) -> list[float] | None:
+    """Mede a latencia de inferencia do modelo ONNX Runtime em processo.
+
+    Retorna None se o artefato ONNX nao existir ou o onnxruntime nao estiver instalado.
+    """
+    try:
+        from app import modelo_onnx  # noqa: PLC0415
+        sessao = modelo_onnx.carregar()
+    except (ImportError, OSError) as exc:
+        print(f"[aviso] ONNX nao disponivel: {exc}")
+        return None
+
+    for texto in textos[:aquecimento]:
+        modelo_onnx.classificar(sessao, texto)
+
+    amostras = []
+    for texto in textos:
+        inicio = time.perf_counter()
+        modelo_onnx.classificar(sessao, texto)
+        amostras.append((time.perf_counter() - inicio) * 1000)
+    return amostras
+
+
 def medir_http(url: str, textos: list[str], aquecimento: int) -> list[float]:
     # Client reaproveitado, e nao uma conexao por requisicao: cliente real mantem
     # keep-alive, e abrir socket a cada chamada mediria o TCP, nao a API.
-    with httpx2.Client(base_url=url, timeout=30) as cliente:
+    with httpx.Client(base_url=url, timeout=30) as cliente:
         for texto in textos[:aquecimento]:
             cliente.post("/predict", json={"texto": texto})
 
@@ -73,6 +102,7 @@ def main() -> None:
     parser.add_argument("--url", default="http://127.0.0.1:8000", help="base da API de pe")
     parser.add_argument("--requisicoes", type=int, default=200)
     parser.add_argument("--aquecimento", type=int, default=20)
+    parser.add_argument("--sem-http", action="store_true", help="pula a medicao HTTP (API nao precisa estar de pe)")
     argumentos = parser.parse_args()
 
     # Laudos reais do split de teste, nao texto sintetico: o custo do TF-IDF depende do
@@ -80,16 +110,31 @@ def main() -> None:
     textos, _ = dados.carregar_split("teste")
     textos = textos[: argumentos.requisicoes]
 
-    em_processo = medir_em_processo(textos, argumentos.aquecimento)
-    http = medir_http(argumentos.url, textos, argumentos.aquecimento)
-
     print(f"{len(textos)} laudos, {argumentos.aquecimento} de aquecimento descartados\n")
     print("| Medicao | media | p50 | p95 | p99 | max |")
     print("|---|---:|---:|---:|---:|---:|")
-    print(resumir("Inferencia em processo (ms)", em_processo))
-    print(resumir("Requisicao HTTP completa (ms)", http))
-    print(f"\nOverhead HTTP no p50: {percentil(http, 0.50) - percentil(em_processo, 0.50):.2f} ms")
-    print(f"Throughput sequencial: {1000 / statistics.mean(http):.0f} req/s")
+
+    sklearn_amostras = medir_sklearn(textos, argumentos.aquecimento)
+    print(resumir("Sklearn — Inferencia em processo (ms)", sklearn_amostras))
+
+    onnx_amostras = medir_onnx(textos, argumentos.aquecimento)
+    if onnx_amostras is not None:
+        print(resumir("ONNX Runtime — Inferencia em processo (ms)", onnx_amostras))
+
+    if not argumentos.sem_http:
+        http_amostras = medir_http(argumentos.url, textos, argumentos.aquecimento)
+        print(resumir("Requisicao HTTP completa (ms)", http_amostras))
+        print(f"\nOverhead HTTP no p50: {percentil(http_amostras, 0.50) - percentil(sklearn_amostras, 0.50):.2f} ms")
+        print(f"Throughput sequencial: {1000 / statistics.mean(http_amostras):.0f} req/s")
+
+    if onnx_amostras is not None:
+        p50_sklearn = percentil(sklearn_amostras, 0.50)
+        p50_onnx = percentil(onnx_amostras, 0.50)
+        ganho = (p50_sklearn - p50_onnx) / p50_sklearn * 100
+        print("\n--- Comparacao sklearn vs ONNX ---")
+        print(f"p50 sklearn : {p50_sklearn:.2f} ms")
+        print(f"p50 ONNX    : {p50_onnx:.2f} ms")
+        print(f"Reducao p50 : {ganho:.1f}%")
 
 
 if __name__ == "__main__":
