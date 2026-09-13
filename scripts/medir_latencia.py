@@ -24,10 +24,10 @@ BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-import httpx
+import httpx  # noqa: E402
 
-from app import modelo as servico
-from treino import dados
+from app import modelo as servico  # noqa: E402
+from treino import dados  # noqa: E402
 
 
 def percentil(amostras: list[float], fracao: float) -> float:
