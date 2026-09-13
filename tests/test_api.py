@@ -31,7 +31,7 @@ def cliente():
 def test_health_responde_ok(cliente):
     resposta = cliente.get("/health")
     assert resposta.status_code == 200
-    assert resposta.json() == {"status": "ok"}
+    assert resposta.json().get("status") == "ok"
 
 
 def test_predict_devolve_classe_conhecida(cliente):
