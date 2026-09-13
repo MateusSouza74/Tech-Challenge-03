@@ -179,6 +179,32 @@ airflow standalone
 
 ---
 
+## Pré-requisitos
+
+Certifique-se de ter as seguintes ferramentas instaladas no seu ambiente:
+- **Python 3.12+**
+- **Docker** e **Docker Compose**
+- **Git**
+
+---
+
+## Estrutura do Projeto
+
+```text
+.
+├── .github/workflows/ # Pipeline de CI/CD (GitHub Actions)
+├── app/               # Código-fonte da API REST de inferência (FastAPI)
+├── dags/              # DAGs de orquestração do Airflow
+├── dados/             # Diretório para o corpus médico extraído
+├── grafana/           # Dashboards e datasources pré-configurados do Grafana
+├── modelo/            # Artefatos do modelo serializado (.joblib e .onnx)
+├── scripts/           # Scripts de utilidade (ex: benchmark de latência)
+├── tests/             # Suíte de testes automatizados (pytest)
+└── treino/            # Módulos de ingestão de dados e treinamento
+```
+
+---
+
 ## Guia de Execução
 
 ### 1. Preparar Ambiente e Executar Testes
