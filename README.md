@@ -156,11 +156,26 @@ O workflow definido em [`.github/workflows/ci.yml`](.github/workflows/ci.yml) ex
 
 ## Pipeline de Treinamento e Orquestração (Airflow)
 
-A DAG definida em [`dags/dag_treino.py`](dags/dag_treino.py) (`dag_id: treino_classificador_laudos`) orquestra o ciclo de retreino periódico:
+A DAG definida em [`dags/treino_laudos.py`](dags/treino_laudos.py) (`dag_id: treino_classificador_laudos`), agendada com `@weekly` e sem `catchup`, orquestra o ciclo de retreino periódico:
 
-1. **`carregar_dados`**: Realizar o download do corpus médico e validar o volume mínimo e as colunas exigidas;
-2. **`treinar_modelo`**: Executar a rotina de treino em `treino.treinar`, exportar o artefato `.joblib` e converter automaticamente para `.onnx`;
-3. **`validar_modelo`**: Verificar se a acurácia no split de teste atende ao limite mínimo de qualidade exigido.
+1. **`ingerir`**: Baixar os dois splits, validar as colunas, verificar se os rótulos estão dentro das 5 classes conhecidas e garantir o piso de 2.000 amostras. Retornar os caminhos por `XCom`, e não os dados (o `XCom` atua como ponteiro, evitando trafegar 14 MB de texto).
+2. **`treinar_modelo`**: Chamar `treino.treinar` (o mesmo módulo utilizado por `python -m treino.treinar` e pelo CI). A lógica de treino não é reimplementada na DAG para garantir a paridade com o modelo gerado via linha de comando. (Nota: O treino leva ~9 segundos, permitindo que a DAG execute o treinamento real em vez de simular).
+3. **`validar`**: Barrar acurácia abaixo de 0,55 com `AirflowFailException`, caracterizando uma falha definitiva sem retentativa (repetir a task apenas atrasaria o alerta, pois o mesmo corpus geraria o mesmo modelo).
+
+### Execução do Airflow em Ambiente Local (POSIX)
+
+Para executar a DAG fora do container, em um ambiente POSIX, deve-se configurar o `PYTHONPATH` corretamente:
+
+```bash
+export AIRFLOW_HOME=~/airflow
+export AIRFLOW__CORE__DAGS_FOLDER=$(pwd)/dags
+export PYTHONPATH=$(pwd)
+airflow standalone
+```
+
+**Nota Técnica sobre o `PYTHONPATH` e Container**: A DAG reside em `dags/` e os módulos de treino estão na raiz do repositório, não sendo adicionados automaticamente ao `sys.path` pelo Airflow. A DAG insere a raiz no `sys.path` de forma autônoma para resolver os imports (`treino.*`), cobrindo o caso do repositório montado por completo.
+
+**Ressalva de Ambiente**: O Airflow não roda nativamente em Windows (o `ObjectStoragePath` utiliza `os.register_at_fork`, exclusivo de POSIX). Para contornar essa restrição, a estrutura da DAG é verificada pelo job `dag` do CI em ambiente Ubuntu, e a execução ponta a ponta ocorre integralmente no container Docker.
 
 ---
 
@@ -213,20 +228,9 @@ python scripts/medir_latencia.py
 python scripts/medir_latencia.py --sem-http
 ```
 
----
-
-## Roteiro do Vídeo (Método STAR - 5 Minutos)
-
-- **Situation (1 min)**: Apresentar o problema de triagem médica rápida em hospitais e a necessidade de classificação de urgência de laudos em tempo real.
-- **Task (1 min)**: Detalhar os requisitos técnicos exigidos na fase: baixa latência, pipeline CI/CD automatizado, orquestração de retreino e observabilidade.
-- **Action (1.5 min)**: Explicar a arquitetura adotada (FastAPI + Docker + Cloud Run), a instrumentação com Prometheus/Grafana e a otimização de latência com ONNX Runtime.
-- **Result (1.5 min)**: Demonstrar a stack Docker Compose em funcionamento, mostrar a redução de ~40% na latência p50 com ONNX Runtime e apresentar os testes unitários no GitHub Actions.
-
----
-
 ## 👥 Autores
 
-| Nome                                | Função no Projeto                               |
-| :---------------------------------- | :---------------------------------------------- |
-| **Mateus de Souza Nascimento**      | Analyst / DevOps / Data Scientist / ML Engineer |
-| **Raphael Dyorgenes Vitor**         | Analyst / DevOps / Data Scientist / ML Engineer |
+| Nome                                | Função no Projeto                               | GitHub
+| :---------------------------------- | :---------------------------------------------- | :--- |
+| **Mateus de Souza Nascimento**      | Analyst / DevOps / Data Scientist / ML Engineer | [GitHub](https://github.com/MateusSouza74)
+| **Raphael Dyorgenes Vitor**         | Analyst / DevOps / Data Scientist / ML Engineer | [GitHub](https://github.com/RaphaelDyorgenes)
