@@ -1,0 +1,13 @@
+global:
+  # Intervalo de coleta: 10 s e curto o suficiente para ver picos no Grafana
+  # sem sobrecarregar a API com scraping continuo.
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+  - job_name: "classificador-laudos"
+    # `api` e o nome do servico no docker-compose.yml. O Prometheus resolve
+    # pelo DNS interno da rede Docker, sem precisar de IP fixo.
+    static_configs:
+      - targets: ["api:8000"]
+    metrics_path: /metrics

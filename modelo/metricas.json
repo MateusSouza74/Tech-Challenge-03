@@ -5,7 +5,7 @@
   "amostras_treino": 11550,
   "amostras_teste": 2888,
   "termos_no_vocabulario": 50000,
-  "segundos_treino": 8.9,
+  "segundos_treino": 5.95,
   "relatorio_por_classe": {
     "neoplasms": {
       "precision": 0.6844380403458213,
@@ -52,5 +52,5 @@
     }
   },
   "versao_sklearn": "1.9.0",
-  "treinado_em": "2026-09-10T13:38:08+00:00"
+  "treinado_em": "2026-09-13T00:40:21+00:00"
 }

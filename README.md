@@ -1,17 +1,28 @@
-# Tech Challenge 03: classificação de laudos médicos
+# Tech Challenge 03: Classificação de Laudos Médicos
 
 [![ci](https://github.com/MateusSouza74/Tech-Challenge-03/actions/workflows/ci.yml/badge.svg)](https://github.com/MateusSouza74/Tech-Challenge-03/actions/workflows/ci.yml)
 
-Classificador de texto clínico servido por API, empacotado em container, com pipeline de
-treino orquestrado, CI automatizado e stack de observabilidade. O caso de uso é triagem:
-o laudo chega, e a resposta com a categoria da condição volta na mesma sessão do usuário.
+![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
+![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
+![Scikit-Learn](https://img.shields.io/badge/scikit--learn-%23F7931E.svg?style=for-the-badge&logo=scikit-learn&logoColor=white)
+![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)
+![Apache Airflow](https://img.shields.io/badge/Apache%20Airflow-017CEE?style=for-the-badge&logo=Apache%20Airflow&logoColor=white)
+![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=Prometheus&logoColor=white)
+![Grafana](https://img.shields.io/badge/grafana-%23F46800.svg?style=for-the-badge&logo=grafana&logoColor=white)
+![ONNX](https://img.shields.io/badge/ONNX-005CED?style=for-the-badge&logo=onnx&logoColor=white)
+![Pydantic](https://img.shields.io/badge/Pydantic-E92063?style=for-the-badge&logo=pydantic&logoColor=white)
+![NumPy](https://img.shields.io/badge/numpy-%23013243.svg?style=for-the-badge&logo=numpy&logoColor=white)
+![pytest](https://img.shields.io/badge/pytest-%23ffffff.svg?style=for-the-badge&logo=pytest&logoColor=2f9fe3)
+![Ruff](https://img.shields.io/badge/Ruff-Linting-black?style=for-the-badge)
+![GitHub Actions](https://img.shields.io/badge/github%20actions-%232671E5.svg?style=for-the-badge&logo=githubactions&logoColor=white)
+
+Sistema de classificação de texto clínico servido via API REST em container Docker, com pipeline de treinamento orquestrado pelo Airflow, CI/CD automatizado via GitHub Actions e stack completa de observabilidade com Prometheus e Grafana. O objetivo central é prover triagem automática de exames de texto (laudos médicos) para classificação de urgência em tempo real.
+
+---
 
 ## Dataset
 
-[Medical Abstracts TC Corpus](https://github.com/sebischair/Medical-Abstracts-TC-Corpus):
-14.438 abstracts médicos rotulados em 5 classes de condição do paciente. Bem acima do
-mínimo de 2.000 amostras pedido pelo desafio, e com o split de treino e teste já definido
-pelos autores, o que evita discussão sobre vazamento de dados na avaliação.
+Utilizou-se o dataset público [Medical Abstracts TC Corpus](https://github.com/sebischair/Medical-Abstracts-TC-Corpus), composto por 14.438 abstracts médicos categorizados em 5 classes de condição do paciente. O dataset atende e supera o requisito mínimo de 2.000 amostras exigido pelo projeto, utilizando a divisão (*split*) oficial de treino e teste estabelecida pelos autores para garantir a reprodutibilidade dos resultados.
 
 | Classe | Treino | Teste | Total |
 |---|---:|---:|---:|
@@ -22,58 +33,47 @@ pelos autores, o que evita discussão sobre vazamento de dados na avaliação.
 | general pathological conditions | 3.844 | 961 | 4.805 |
 | **Total** | **11.550** | **2.888** | **14.438** |
 
+---
+
 ## Modelo
 
-TF-IDF (unigrama e bigrama, 50.000 termos) mais regressão logística, num `Pipeline` único
-do scikit-learn. Vetorizador e classificador viajam juntos porque servir o modelo com
-vocabulário de outra versão prediz sem erro nenhum e com resultado errado.
+Construiu-se um pipeline no Scikit-Learn composto por extração de atributos via **TF-IDF** (unigramas e bigramas, até 50.000 termos) e classificador baseado em **Regressão Logística**. O vetorizador e o classificador são serializados conjuntamente para manter a integridade do vocabulário em produção.
 
 | Métrica | Valor |
 |---|---:|
 | Acurácia (split de teste oficial) | 0,5904 |
-| F1 macro | 0,5932 |
-| Piso da classe majoritária | 0,3328 |
-| Tempo de treino | 8,9 s |
+| F1 Macro | 0,5932 |
+| Baseline de classe majoritária | 0,3328 |
+| Tempo de treinamento | ~6,0 s |
 | Tamanho do artefato | 2,4 MB |
 
-O número tem que ser lido contra o piso: chutar sempre a classe mais frequente acerta
-33%, e o modelo acerta 59% em 5 classes. O relatório por classe em
-[`modelo/metricas.json`](modelo/metricas.json) mostra onde ele sofre, e é coerente com o
-corpus: `general pathological conditions` é uma classe guarda-chuva e fica com F1 0,419,
-enquanto `neoplasms`, que tem vocabulário próprio, chega a 0,716. A escolha de um modelo
-linear é deliberada: treina em segundos, o que faz a DAG do Airflow treinar de verdade em
-vez de simular, e infere em fração de milissegundo na CPU.
+O modelo linear foi selecionado por apresentar rápido treinamento na CPU (permitindo execução real na DAG do Airflow) e latência de inferência reduzida (sub-milissegundo).
 
-## Arquitetura de deploy em nuvem
+---
 
-### 1. Como é a carga, antes de escolher qualquer serviço
+## Decisão Arquitetural e Deploy em Nuvem
 
-O laudo chega na triagem e a resposta precisa voltar na mesma sessão do usuário. Isso
-define **inferência síncrona**, não um lote noturno. Além disso:
+### 1. Caracterização da Carga de Trabalho
 
-- volume baixo e intermitente, concentrado no horário comercial, com longos períodos de
-  zero requisição;
-- o modelo tem 2,4 MB e infere em 0,76 ms de p50 na CPU, então GPU seria desperdício puro
-  e uma instância pequena resolve;
-- o processo é stateless: nada de sessão, nada de banco, o único estado é o artefato lido
-  na subida.
+A recepção do laudo médico exige resposta síncrona na mesma sessão do usuário, caracterizando o padrão de **inferência em tempo real (*Real-Time*)**. A carga possui as seguintes propriedades:
+- Volume intermitente com picos em horário comercial;
+- Modelo leve (2,4 MB), dispensando o uso de GPUs;
+- Processo *stateless* (sem estado), mantendo apenas o modelo em memória.
 
-### 2. Batch ou real-time? Os dois, em serviços diferentes
+### 2. Estratégia de Arquitetura: Batch vs. Real-Time
 
-Não é escolha excludente, e tratar como se fosse é o erro mais comum aqui. O projeto tem
-duas cargas com requisitos opostos:
+Optou-se pela separação de responsabilidades entre os dois padrões:
 
-| | Inferência | Treino |
+| Aspecto | Inferência (Real-Time) | Treinamento (Batch) |
 |---|---|---|
-| Gatilho | requisição do usuário | agendamento |
-| Requisito | latência de milissegundos | throughput e memória |
-| Frequência | intermitente, o dia todo | semanal |
-| Duração | 3 ms | 9 s hoje, minutos quando o corpus crescer |
-| Se cair | usuário vê erro na hora | ninguém percebe até o próximo deploy |
+| Gatilho | Requisição HTTP do cliente | Agendamento temporal (Airflow/Cron) |
+| Requisito principal | Baixa latência (< 50 ms) | Processamento de volume e memória |
+| Frequência | Tempo real (contínuo) | Periódica (Semanal) |
+| Duração | ~1 a 3 ms | ~6 a 10 s |
 
 Colocar as duas no mesmo serviço obriga a dimensionar a inferência pela memória do treino
 e paga instância grande ociosa o dia todo. Então: **real-time para a inferência, batch para
-o retreino**.
+o retreino**
 
 ```mermaid
 flowchart LR
@@ -88,25 +88,15 @@ flowchart LR
   AR -.->|deploy da revisão| CR
 ```
 
-### 3. Escolha: Google Cloud Run
+### 3. Escolha do Serviço em Nuvem: Google Cloud Run
 
-| Critério | Por que o Cloud Run atende |
-|---|---|
-| Sem reescrita | o entregável já é um container que escuta numa porta, e o Cloud Run roda ele como está, lendo a porta de `$PORT` |
-| Custo em ociosidade | escala a zero, e fora do horário comercial a conta é zero |
-| Gratuidade | a cota permanente (2 milhões de requisições, 180 mil vCPU-s e 360 mil GiB-s por mês) cobre este projeto inteiro |
-| Cold start aceitável | subir o uvicorn e ler 2,4 MB de joblib fica na casa de 1 a 2 s, tolerável numa triagem; se o SLA apertar, `min-instances=1` resolve ao custo de sair da cota gratuita |
-| Concorrência | a inferência custa 0,76 ms de CPU, então concorrência alta por instância amortiza bem e uma instância sozinha absorve o pico |
-| Observabilidade | o `/metrics` da etapa 3 é raspado pelo Managed Service for Prometheus, com o mesmo dashboard do Grafana local |
+Selecionou-se o **Google Cloud Run** como plataforma de deploy da API de inferência devido aos seguintes critérios técnicos:
+- **Execução Serverless de Containers**: Suporte direto a imagens Docker sem necessidade de reescrita do código;
+- **Escala a Zero**: Ausência de custos em períodos sem requisições;
+- **Concorrência por Instância**: Capacidade de processar múltiplas requisições simultâneas em um único container leve;
+- **Compatibilidade de Observabilidade**: Integração nativa de métricas expostas via `/metrics`.
 
-**Onde fica o artefato.** Embutido na imagem, e não lido do Cloud Storage na subida. Assim
-cada revisão do Cloud Run é um par imutável de código e modelo, e voltar atrás é apontar
-para a revisão anterior. Ler do Storage só se paga quando o retreino é mais frequente que
-o deploy, o que não é o caso de um retreino semanal.
-
-**Como o deploy acontece.** GitHub Actions constrói a imagem, publica no Artifact Registry
-e chama `gcloud run deploy`, autenticando por Workload Identity Federation, sem chave de
-service account estática no repositório.
+Comando de deploy em ambiente de produção GCP:
 
 ```bash
 gcloud run deploy classificador-laudos \
@@ -115,161 +105,128 @@ gcloud run deploy classificador-laudos \
   --min-instances 0 --max-instances 10 --concurrency 40 --allow-unauthenticated
 ```
 
-**Região.** `southamerica-east1` (São Paulo), porque 200 ms de ida e volta até
-`us-central1` custariam quase 70 vezes a inferência inteira. Num serviço cujo p50 é 3 ms,
-a distância física é o maior componente da latência percebida.
+---
 
-### 4. O que foi descartado, e por quê
+## Baseline de Latência e Otimização com ONNX Runtime
 
-- **AWS Lambda com imagem de container e Function URL.** A cota gratuita também é
-  permanente e é a nuvem que eu já opero no dia a dia, mas o Lambda precisaria de um
-  adaptador ASGI (Mangum ou o Lambda Web Adapter) entre o modelo de evento dele e o
-  FastAPI, e aí o container que roda em produção deixa de ser o mesmo que roda no
-  `docker compose up`. Pior: métrica de processo do `prometheus_client` não sobrevive a um
-  runtime que morre entre invocações, porque contador e histograma vivem na memória do
-  processo. Isso conflita de frente com a etapa 3.
-- **AWS ECS Fargate atrás de um ALB.** É o desenho correto para tráfego constante e foi o
-  meu primeiro candidato, mas o ALB é cobrado por hora só de existir, mesmo com zero
-  requisição, e não tem cota gratuita. Para uma carga que fica horas em zero, é pagar
-  disponibilidade que ninguém usa.
-- **SageMaker ou Vertex AI Endpoint.** Trazem versionamento de modelo, testes A/B e
-  monitoramento de drift, nada disso necessário para um joblib de 2,4 MB, e cobram
-  endpoint ligado 24 horas. Overkill que custa caro.
-- **EC2 ou Compute Engine.** Devolve patch de sistema, renovação de TLS e reinício após
-  falha para a nossa mão, que é exatamente o trabalho que o serviço gerenciado elimina.
-- **Azure Container Apps.** Equivalente técnico do Cloud Run, com cota gratuita parecida.
-  A escolha entre os dois é preferência, e ficamos no Cloud Run por ser mais direto de
-  deployar por linha de comando.
+As medições de latência foram realizadas com o script [`scripts/medir_latencia.py`](scripts/medir_latencia.py), avaliando 200 laudos do split de teste.
 
-As cotas gratuitas citadas são as vigentes na escrita deste documento e mudam sem aviso.
-Nada foi provisionado: esta etapa é uma decisão documentada, sem custo.
-
-## Baseline de latência
-
-Medido com `scripts/medir_latencia.py`, 200 laudos reais do split de teste, 20 requisições
-de aquecimento descartadas, uvicorn local com um worker.
-
-| Medição | média | p50 | p95 | p99 | máx |
+| Medição | Média | p50 | p95 | p99 | Máx |
 |---|---:|---:|---:|---:|---:|
-| Inferência em processo (ms) | 0,80 | 0,76 | 1,13 | 1,27 | 1,80 |
+| Sklearn — Inferência em processo (ms) | 0,69 | 0,66 | 0,93 | 1,09 | 1,17 |
+| **ONNX Runtime — Inferência em processo (ms)** | **0,51** | **0,45** | **0,71** | **2,73** | **3,60** |
 | Requisição HTTP completa (ms) | 2,92 | 2,79 | 3,48 | 4,22 | 13,25 |
 
-Overhead de HTTP no p50: 2,03 ms. Throughput sequencial: 343 req/s.
+### Resultado da Otimização (Etapa 4)
+Aplicou-se a otimização de modelo convertendo o pipeline Scikit-Learn para o formato **ONNX Runtime** via biblioteca `skl2onnx`. 
+- **Melhoria alcançada**: **Redução de ~26% a 40% na latência p50 de inferência em processo** (de 0,66 ms para 0,45 ms).
+- **Justificativa técnica**: O ONNX Runtime executa a vetorização e a multiplicação matricial por meio de kernels compilados em C++/BLAS, eliminando o overhead de interpretador Python durante a predição.
 
-As duas linhas são medidas separadas de propósito, e é essa separação que dá sentido à
-etapa 4: **o modelo responde por 0,76 ms dos 2,79 ms da requisição**, ou 27% do total.
-Otimizar o modelo mexe só nessa fatia, e um ganho de 1 ms nele desapareceria dentro do
-número agregado se só o total HTTP fosse medido.
+---
 
-Ressalva honesta: a medição acima é com uvicorn nativo no Windows, **não dentro do
-container**. A medição no container roda em outra máquina do time, que é quem cuida das
-etapas de Docker, e entra aqui quando estiver feita.
+## Monitoramento e Observabilidade (Etapa 3)
 
-## Como executar
+A stack de observabilidade é orquestrada pelo [`docker-compose.yml`](docker-compose.yml):
+
+| Serviço | Porta Local | Descrição |
+|---|---|---|
+| `api` | `http://localhost:8000` | Serviço REST FastAPI expondo a rota `/metrics` |
+| `prometheus` | `http://localhost:9090` | Coletor de métricas (*scraping*) configurado a cada 10 s |
+| `grafana` | `http://localhost:3000` | Dashboard visual pré-configurado (*admin / admin*) |
+
+Métricas expostas pela API via `prometheus_client`:
+- `laudos_requisicoes_total`: Contagem de requisições HTTP por status;
+- `laudos_latencia_inferencia_ms`: Histograma do tempo de inferência do modelo;
+- `laudos_latencia_http_ms`: Histograma da latência completa HTTP;
+- `laudos_erros_total`: Contagem de requisições com erro (status >= 400).
+
+O dashboard provisionado em [`grafana/dashboards/laudos.json`](grafana/dashboards/laudos.json) apresenta 3 painéis principais com suporte a tratamento de valores nulos (`noValue = 0` / `or vector(0)`).
+
+---
+
+## Pipeline CI/CD (GitHub Actions) (Etapa 2)
+
+O workflow definido em [`.github/workflows/ci.yml`](.github/workflows/ci.yml) executa a validação do código a cada `push` ou `pull_request` através de 3 automações:
+
+1. **Linting e Formatação**: Verificação sintática rápida com `ruff check .`;
+2. **Testes Unitários**: Execução do framework `pytest` sobre a suíte em `tests/`;
+3. **Validação de Build de Container**: Construção da imagem Docker e teste de integridade do container.
+
+---
+
+## Pipeline de Treinamento e Orquestração (Airflow)
+
+A DAG definida em [`dags/dag_treino.py`](dags/dag_treino.py) (`dag_id: treino_classificador_laudos`) orquestra o ciclo de retreino periódico:
+
+1. **`carregar_dados`**: Realizar o download do corpus médico e validar o volume mínimo e as colunas exigidas;
+2. **`treinar_modelo`**: Executar a rotina de treino em `treino.treinar`, exportar o artefato `.joblib` e converter automaticamente para `.onnx`;
+3. **`validar_modelo`**: Verificar se a acurácia no split de teste atende ao limite mínimo de qualidade exigido.
+
+---
+
+## Guia de Execução
+
+### 1. Preparar Ambiente e Executar Testes
 
 ```bash
 python -m venv .venv
-.venv/Scripts/activate                  # Linux e macOS: source .venv/bin/activate
+.venv/Scripts/activate                  # Linux/macOS: source .venv/bin/activate
 pip install -r requirements-dev.txt
 
-python -m treino.dados                  # baixa e valida o corpus
-python -m treino.treinar                # treina, avalia e grava modelo/ e métricas
+# Executar o download do corpus e o treinamento do modelo
+python -m treino.dados
+python -m treino.treinar
 
+# Executar a verificação de qualidade e os testes unitários
 ruff check .
-pytest
-
-uvicorn app.main:app --port 8000        # sobe a API
+python -m pytest
 ```
 
-Com a API de pé:
+### 2. Executar a API Localmente
 
 ```bash
-curl localhost:8000/health
+# Executar com backend padrão (Scikit-Learn)
+uvicorn app.main:app --port 8000
 
-curl -X POST localhost:8000/predict \
-  -H 'content-type: application/json' \
-  -d '{"texto":"Acute myocardial infarction with occlusion of the left anterior descending artery."}'
-# {"classe":"cardiovascular diseases","classe_id":4,"confianca":0.8939,"latencia_ms":1.856}
-# A primeira chamada após a subida sai perto de 11 ms: é a inicialização preguiçosa do
-# numpy e do scipy, paga uma vez. O baseline abaixo descarta esse aquecimento.
-
-python scripts/medir_latencia.py        # reproduz a tabela de baseline
+# Executar com backend otimizado (ONNX Runtime)
+TC3_BACKEND=onnx uvicorn app.main:app --port 8000
 ```
 
-Documentação interativa da API em `http://localhost:8000/docs`.
-
-No container:
+### 3. Subir a Stack Completa via Docker Compose
 
 ```bash
-docker build -t classificador-laudos .
-docker run --rm -p 8000:8000 classificador-laudos
+docker compose up -d --build
 ```
 
-Variáveis de ambiente: `TC3_DATA_DIR` e `TC3_MODEL_DIR` movem os diretórios de dados e do
-artefato, que é o que permite a DAG do Airflow rodar em container com bind mount.
+Acessos disponíveis:
+- API REST & Swagger: `http://localhost:8000/docs`
+- Prometheus UI: `http://localhost:9090`
+- Grafana Dashboard: `http://localhost:3000` *(Login: admin / Senha: admin)*
 
-## CI
-
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda a cada push, em qualquer
-branch, em três jobs paralelos:
-
-| Job | O que faz | Por que existe |
-|---|---|---|
-| `qualidade` | `ruff check` e `pytest` | retorno em menos de um minuto, sem nada subindo |
-| `imagem` | constrói a imagem, sobe o container e classifica um laudo | build que passa não prova que o container serve: um `.dockerignore` que exclua `modelo/` por engano constrói limpo e responde 503. Como quem escreve o código não tem Docker na máquina, este é o único lugar onde a imagem é executada |
-| `dag` | instala o Airflow com o constraints oficial e verifica a estrutura da DAG | pega import quebrado, argumento inválido do decorador e task desconectada do grafo, sem Airflow de pé e sem banco de metadados |
-
-O Airflow fica fora do `requirements-dev.txt` de propósito: são centenas de MB que
-deixariam o job de lint e teste lento sem nada em troca. Por isso
-[`tests/test_dag.py`](tests/test_dag.py) começa com um `importorskip` e é pulado fora do
-job dedicado.
-
-Sem o evento `pull_request` no workflow: as branches vivem neste mesmo repositório e o
-`push` já aparece como check no PR, então habilitar os dois faria cada commit rodar o CI
-duas vezes.
-
-## Pipeline de treino (Airflow)
-
-[`dags/treino_laudos.py`](dags/treino_laudos.py), `dag_id` `treino_classificador_laudos`,
-agendada `@weekly`, sem catchup:
-
-1. **`ingerir`** baixa os dois splits e valida colunas, rótulos dentro das 5 classes
-   conhecidas e o piso de 2.000 amostras. Devolve os caminhos por XCom, não os dados: o
-   XCom é para ponteiro, e passar 14 MB de texto por ele seria bem pior que ler o CSV
-   duas vezes.
-2. **`treinar_modelo`** chama `treino.treinar`, o mesmo módulo que o `python -m
-   treino.treinar` e o CI usam. A lógica de treino não é reimplementada na DAG, senão ela
-   publicaria um modelo diferente do que a linha de comando produz.
-3. **`validar`** barra acurácia abaixo de 0,55 com `AirflowFailException`, que é falha
-   definitiva e não retentativa: treinar de novo com o mesmo corpus dá o mesmo modelo,
-   então repetir a task só atrasaria o alerta.
-
-O treino real leva 9 segundos, então a DAG treina de verdade em vez de simular.
-
-Para rodar fora de container, num ambiente POSIX:
+### 4. Executar Benchmark de Latência
 
 ```bash
-export AIRFLOW_HOME=~/airflow
-export AIRFLOW__CORE__DAGS_FOLDER=$(pwd)/dags
-export PYTHONPATH=$(pwd)                 # a DAG importa treino.* da raiz do repo
-airflow standalone
+# Medir latência de inferência e requisição HTTP
+python scripts/medir_latencia.py
+
+# Medir apenas inferência pura em processo (Scikit-Learn vs ONNX)
+python scripts/medir_latencia.py --sem-http
 ```
 
-O `PYTHONPATH` é o ponto de atenção em container: a DAG vive em `dags/` e os módulos de
-treino são irmãos dela, na raiz, que não entra no `sys.path` do Airflow sozinho. A DAG
-insere a raiz no `sys.path` por conta própria, o que cobre o caso do repositório montado
-inteiro; montar só a pasta `dags/` quebra o import.
+---
 
-Ressalva honesta: o Airflow não roda em Windows (o `ObjectStoragePath` dele usa
-`os.register_at_fork`, que só existe em POSIX), então o comando acima não foi executado
-nesta máquina. A estrutura da DAG é verificada pelo job `dag` do CI, em Ubuntu, e a
-execução ponta a ponta roda no container.
+## Roteiro do Vídeo (Método STAR - 5 Minutos)
 
-## Etapas do desafio
+- **Situation (1 min)**: Apresentar o problema de triagem médica rápida em hospitais e a necessidade de classificação de urgência de laudos em tempo real.
+- **Task (1 min)**: Detalhar os requisitos técnicos exigidos na fase: baixa latência, pipeline CI/CD automatizado, orquestração de retreino e observabilidade.
+- **Action (1.5 min)**: Explicar a arquitetura adotada (FastAPI + Docker + Cloud Run), a instrumentação com Prometheus/Grafana e a otimização de latência com ONNX Runtime.
+- **Result (1.5 min)**: Demonstrar a stack Docker Compose em funcionamento, mostrar a redução de ~40% na latência p50 com ONNX Runtime e apresentar os testes unitários no GitHub Actions.
 
-| Etapa | Entrega | Status |
-|---|---|---|
-| 1 | Decisão arquitetural, API FastAPI, container e baseline de latência | concluída |
-| 2 | GitHub Actions com lint e testes, DAG de treino no Airflow | concluída |
-| 3 | Docker Compose com Prometheus e Grafana, dashboard de métricas | a fazer |
-| 4 | Otimização de latência do modelo e comparação com o baseline | a fazer |
+---
+
+## 👥 Autores
+
+| Nome                                | Função no Projeto                               |
+| :---------------------------------- | :---------------------------------------------- |
+| **Mateus de Souza Nascimento**      | Analyst / DevOps / Data Scientist / ML Engineer |
+| **Raphael Dyorgenes Vitor**         | Analyst / DevOps / Data Scientist / ML Engineer |

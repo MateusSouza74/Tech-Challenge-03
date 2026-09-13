@@ -1,0 +1,59 @@
+services:
+
+  # --------------------------------------------------------------------------
+  # API de classificacao de laudos medicos
+  # --------------------------------------------------------------------------
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # TC3_BACKEND=onnx para usar ONNX Runtime; omitir ou "sklearn" para o padrao.
+      TC3_BACKEND: sklearn
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  # --------------------------------------------------------------------------
+  # Prometheus — coleta as metricas expostas em /metrics pela API
+  # --------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v3.4.0
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+
+  # --------------------------------------------------------------------------
+  # Grafana — dashboard de observabilidade da API
+  # --------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:12.0.2
+    ports:
+      - "3000:3000"
+    environment:
+      # Credenciais padrao para ambiente local de desenvolvimento. Nao usar em producao.
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus_data:
+  grafana_data:
