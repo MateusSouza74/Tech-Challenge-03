@@ -10,5 +10,5 @@ joblib==1.6.0
 prometheus-client==0.22.1
 
 # Runtime e exportação de modelos otimizados para ONNX (ativado com TC3_BACKEND=onnx)
-onnxruntime==1.20.1
-skl2onnx==1.20.0
+onnxruntime>=1.20.1
+skl2onnx>=1.17.0
